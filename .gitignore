@@ -1,0 +1,17 @@
+# secrets — never commit
+.env
+.env.*
+!.env.example
+
+# challenge starter pack (unzip locally into starter/)
+starter/
+
+# eval outputs
+results/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
