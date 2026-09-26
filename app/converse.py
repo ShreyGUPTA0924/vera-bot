@@ -309,6 +309,11 @@ def rule_answer(conv: Conversation, lang: str, kind: str = "question") -> dict:
     if re.search(r"cost|price|charge|kitna|paisa|fees|free hai", q):
         options.append(_L(lang, f"I can't quote a price from here, so I won't guess. What I can tell you: I prepare the {label} for you and you only approve it. Reply YES to see the draft.",
                           f"Price main yahan se quote nahi kar sakti, guess nahi karungi. Itna pakka hai: {label} main taiyaar karti hoon, aapko bas approve karna hai. Draft dekhne ke liye YES bolein."))
+    if kind == "metric" and known:
+        options.append(_L(lang, f"I don't get numbers for a single post or offer, only for your whole Google listing: {known}. "
+                                f"The quickest way to put that traffic to work is the {label}. Reply YES and I'll have it ready.",
+                          f"Ek post ya offer ke alag numbers mere paas nahi aate, sirf poori Google listing ke: {known}. "
+                          f"Is traffic ka sabse jaldi faayda {label} se hoga. YES bolein, ready kar deti hoon."))
     if kind == "open":
         options.append(_L(lang, f"Got it, noted. I'll shape the {label} around that. Reply YES and I'll send you the draft.",
                           f"Samajh gayi, note kar liya. {label} usi hisaab se banaungi. YES bolein toh draft bhej deti hoon."))
@@ -330,3 +335,17 @@ def rule_answer(conv: Conversation, lang: str, kind: str = "question") -> dict:
                     "rationale": "Question answered honestly from available facts (no guessing); single next step."}
     conv.state = "WAITING"
     return {"action": "wait", "wait_seconds": 3600, "rationale": "Already answered; giving the merchant time."}
+
+
+METRIC_Q = re.compile(
+    r"(how many|how much|kitne|kitna|kitni|numbers?|stats?|views?|reach|dekha|dekhe).{0,60}"
+    r"(post|offer|campaign|reel|story|ad\b|banner|promo)|(post|offer|campaign|reel|story|banner|promo).{0,60}"
+    r"(how many|views?|reach|kitne|kitna|kitni|dekha|dekhe|performance|perform|stats?)", re.I)
+
+
+def asks_item_metric(msg: str) -> bool:
+    """Merchant asks for a per-post / per-offer number we don't have (we only see whole-listing numbers)."""
+    m = msg or ""
+    if re.search(r"cost|price|charge|fee|paisa|paise|rupe|₹|pay\b|kitne ka|kitne ki|kitna ka", m, re.I):
+        return False
+    return bool(METRIC_Q.search(m))

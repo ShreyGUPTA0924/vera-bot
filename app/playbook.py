@@ -11,7 +11,9 @@ from dataclasses import dataclass, field
 from .facts import (BUSINESS_NOUN, COMEBACK_PREFS, EMOJI_CUSTOMER, FESTIVE_PREFS, PLURAL_BIZ, Facts,
                     clean_query, first_sentence, fmt_int, humanize_slug, parse_price, pct, register,
                     rupees)
-from .util import human_time, parse_dt, possessive, sentences, weekday_name
+from datetime import timedelta
+
+from .util import IST, human_date, human_time, parse_dt, possessive, sentences, weekday_name
 
 
 @dataclass
@@ -734,6 +736,14 @@ def _since_phrase(days: int | None) -> str:
     return f"about {round(days / 30)} months"
 
 
+def _visits(f: Facts) -> int | None:
+    try:
+        n = int(((f.customer or {}).get("relationship") or {}).get("visits_total") or 0)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 3 else None
+
+
 def _cust_close(f: Facts, en: str, hi: str) -> str:
     return hi if f.customer_lang() in ("hinglish", "hindi_roman") else en
 
@@ -749,12 +759,26 @@ def recall_due(f: Facts, seen=None) -> Draft:
     since = f.days_since(last) if last else None
     if since and since >= 45:
         register(f, round(since / 30))
-    service = humanize_slug(p.get("service_due", "")) or "next check-up"
-    offer, phrase, own = _offer_phrase(f, prefer=COMEBACK_PREFS.get(f.slug, ()))
+    service = humanize_slug(p.get("service_due", "")) or {
+        "dentists": "next check-up", "salons": "next appointment", "gyms": "next session"}.get(f.slug, "next visit")
+    if f.slug == "gyms" and _visits(f):
+        # a regular member: a progress check fits; a new-member intro offer doesn't
+        offer, phrase, own = _offer_phrase(f, prefer=("body composition", "assessment", "analysis"))
+        if offer and any(w in offer.lower() for w in ("first", "trial", "intro", "new member")):
+            offer, own = None, False
+    else:
+        offer, phrase, own = _offer_phrase(f, prefer=COMEBACK_PREFS.get(f.slug, ()))
     body = _cust_open(f)
     if f.slug == "gyms":
-        body += (f" It's been {_since_phrase(since)} since your last session — easing back in is simpler than starting over."
-                 if since is not None and since > 0 else " Time for your next session.")
+        n = _visits(f)
+        if since is not None and 0 < since < 45 and last:
+            body += f" Your last session was on {f.date_label(last)}, {since} days ago."
+            body += (f" After {n} sessions, coming back this week keeps that progress from slipping."
+                     if n else " Coming back this week is easier than starting over later.")
+        elif since is not None and since > 0:
+            body += f" It's been {_since_phrase(since)} since your last session — easing back in is simpler than starting over."
+        else:
+            body += " Time for your next session."
     elif p.get("service_due") and last:
         body += f" Your last visit was on {f.date_label(last)}, so your {service} is due now."
     elif last and since is not None and since > 0:
@@ -772,7 +796,8 @@ def recall_due(f: Facts, seen=None) -> Draft:
         cta = "multi_choice_slot"
     else:
         if offer and own:
-            body += f" {offer} is available."
+            body += (f" A {offer} is on us — it shows exactly where you stand after the break."
+                     if f.slug == "gyms" and "analysis" in offer.lower() else f" {offer} is available.")
         pref = humanize_slug(str(((f.customer or {}).get("preferences") or {}).get("preferred_slots", "")))
         if pref:
             body += " " + _cust_close(f, f"Reply YES and we'll hold a {pref} slot for you.", f"YES reply karein, hum aapke liye {pref} slot hold kar lenge.")
@@ -793,7 +818,12 @@ def appointment_tomorrow(f: Facts, seen=None) -> Draft:
     body = _cust_open(f) + f" Reminder: your {what}"
     if svc:
         body += f" for {humanize_slug(svc)}"
-    body += f" is tomorrow{' at ' + human_time(when) if when else ''}."
+    if when:
+        body += f" is tomorrow, {weekday_name(when)[:3]} {human_date(when)} at {human_time(when)}."
+    else:
+        tmr = f.now + timedelta(days=1)
+        register(f, tmr.astimezone(IST).day)
+        body += f" is tomorrow, {weekday_name(tmr)[:3]} {human_date(tmr)}."
     body += " " + _cust_close(f, "Reply 1 to confirm or 2 to reschedule.", "Confirm ke liye 1, reschedule ke liye 2 reply karein.")
     return _c(f, "appointment_tomorrow", body, "multi_choice_slot", "utility",
               "Appointment reminder; no time invented when payload lacks it.", [f.customer_names()[0]],
@@ -863,11 +893,18 @@ def customer_lapsed(f: Facts, seen=None) -> Draft:
         register(f, round(days / 30))
     focus = humanize_slug(p.get("previous_focus", "") or ((f.customer or {}).get("preferences") or {}).get("training_focus", ""))
     offer, phrase, own = _offer_phrase(f, prefer=COMEBACK_PREFS.get(f.slug, ()))
+    if not own:
+        offer = None  # a customer must only hear offers this merchant actually runs
     body = _cust_open(f)
     if days and days > 0:
         span = f"{days} days" if p.get("days_since_last_visit") else _since_phrase(days)
+        lv = f.customer_last_visit()
+        n = _visits(f)
         if f.slug == "dentists":
             body += f" It's been {span} since your last visit — a routine check keeps small issues from becoming bigger ones."
+        elif days < 45 and lv and not p.get("days_since_last_visit"):
+            body += f" Your last visit was on {f.date_label(lv)}, {days} days ago"
+            body += f" — thank you for {n} visits with us." if n else "."
         else:
             body += f" It's been {span} since your last visit — no pressure, it happens to everyone."
     else:
@@ -880,8 +917,14 @@ def customer_lapsed(f: Facts, seen=None) -> Draft:
     pref = str(((f.customer or {}).get("preferences") or {}).get("preferred_slots", ""))
     if pref and f.slug not in ("pharmacies",):
         body += f" {humanize_slug(pref).capitalize()} slots are open."
-    if f.slug in ("pharmacies", "restaurants"):
+    if f.slug == "pharmacies":
+        body += " " + _cust_close(f, "Need anything this week? Reply YES and we'll call to take your list.",
+                                  "Is hafte kuch chahiye? YES reply karein, hum call karke list le lenge.")
+    elif f.slug == "restaurants":
         body += " " + _cust_close(f, "Reply YES and we'll keep it ready for you.", "YES reply karein, hum aapke liye ready rakhenge.")
+    elif f.slug == "dentists" and not offer:
+        body += " " + _cust_close(f, "Want a check-up slot this week? Reply YES — no commitment.",
+                                  "Is hafte check-up slot chahiye? YES reply karein — koi commitment nahi.")
     else:
         body += " " + _cust_close(f, "Want one this week? Reply YES — no commitment.",
                                   "Is hafte ek slot chahiye? YES reply karein — koi commitment nahi.")

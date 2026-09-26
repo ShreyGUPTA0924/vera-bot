@@ -18,7 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from .converse import default_next_action, detect_lang, handle_reply, rule_answer
+from .converse import asks_item_metric, default_next_action, detect_lang, handle_reply, rule_answer
 from .decide import Plan, plan_trigger
 from .facts import Facts
 from .llm import get_llm
@@ -329,6 +329,8 @@ async def reply(body: ReplyBody):
         return {"action": "wait", "wait_seconds": 1800, "rationale": "Could not interpret the reply safely; pausing."}
     if res.get("action") == "_needs_answer":
         lang = res.get("lang", "en")
+        if asks_item_metric(body.message) and conv.facts.get("perf_line"):
+            return rule_answer(conv, lang, "metric")  # deterministic: never let a model relabel listing numbers
         llm = get_llm()
         text = None
         if llm.active:
