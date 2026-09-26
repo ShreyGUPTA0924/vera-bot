@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: vera-bot
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /v1/healthz
+    autoDeploy: false   # never redeploy (= wipe state) by accident after submitting
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: LLM_ENABLED
+        value: "1"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-20b
+      - key: GEMINI_RPM
+        value: "8"
+      - key: GEMINI_RPD
+        value: "400"
+      - key: GROQ_RPM
+        value: "24"
+      - key: GROQ_TPM
+        value: "6400"
+      - key: GROQ_RPD
+        value: "800"
+      - key: TEAM_NAME
+        value: Shrey Gupta
+      - key: TEAM_MEMBERS
+        value: Shrey Gupta
+      - key: CONTACT_EMAIL
+        value: shreygupta0924@gmail.com

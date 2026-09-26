@@ -178,7 +178,7 @@ def research_digest(f: Facts, seen=None) -> Draft:
     title, src = item.get("title", ""), item.get("source", "")
     body = _hl(f, f"{f.salutation}, one item from {src} worth 2 minutes: {title}.",
                f"{f.salutation}, {src} mein ek kaam ki cheez aayi hai: {title}.")
-    if item.get("trial_n"):
+    if item.get("trial_n") and fmt_int(item["trial_n"]) not in title:
         body += f" It's a {fmt_int(item['trial_n'])}-person study."
     summ = first_sentence(item.get("summary", ""))
     if summ and summ.lower() not in title.lower():
@@ -435,7 +435,11 @@ def perf_dip(f: Facts, seen=None) -> Draft:
     pv = f.peer.get(f"avg_{chosen}_30d") if chosen in ("calls", "views") else None
     cur = f.perf.get(chosen)
     if pv and cur is not None:
-        body += f" 30-day {word}: {fmt_int(cur)}, vs {fmt_int(pv)} average for {f.peer_label()}."
+        if cur >= pv:
+            body += (f" You're still above the {fmt_int(pv)} average for {f.peer_label()} ({fmt_int(cur)} in 30 days), "
+                     f"so this is a dip worth catching early.")
+        else:
+            body += f" 30-day {word}: {fmt_int(cur)}, vs {fmt_int(pv)} average for {f.peer_label()}."
     if not f.active_offers():
         body += f" There's no live offer on your listing right now — adding {phrase} is the fastest lever." if offer else ""
     elif offer:
@@ -443,7 +447,7 @@ def perf_dip(f: Facts, seen=None) -> Draft:
     body += " " + _yes(f, "set it up today", "aaj hi set kar deti hoon")
     return _m(f, "perf_dip", body, "binary_yes_no", "loss_aversion",
               f"Verified dip: {chosen} {pct(val)} (7d); peer benchmark; offer lever.",
-              [f.salutation, f"{word} {pct(val)}"], {"type": "offer_live", "label": "offer on listing",
+              [f.salutation, f"{word} {pct(val)}"], {"type": "offer_live", "label": "profile offer post",
                "artifact": _post(f, offer or "Book your visit", "Tap Call or Directions to book.")})
 
 
@@ -469,7 +473,7 @@ def perf_spike(f: Facts, seen=None) -> Draft:
     body += " " + _yes(f, "pin it now", "abhi pin kar deti hoon")
     return _m(f, "perf_spike", body, "binary_yes_no", "momentum",
               f"Verified spike: {best} {pct(val, signed=True)} (7d); convert momentum with offer.",
-              [f.salutation, f"{word} {pct(val, signed=True)}"], {"type": "offer_live", "label": "pin offer",
+              [f.salutation, f"{word} {pct(val, signed=True)}"], {"type": "offer_live", "label": "profile offer post",
                "artifact": _post(f, offer or "Now booking", "Tap Call to book.")})
 
 
@@ -705,7 +709,7 @@ def recall_due(f: Facts, seen=None) -> Draft:
         cta = "multi_choice_slot"
     else:
         if offer and own:
-            body += f" {offer} is running this month."
+            body += f" {offer} is available."
         body += " " + _cust_close(f, "Reply YES and we'll call you to fix a time.", "YES reply karein, hum time fix karne ke liye call kar lenge.")
         cta = "binary_yes_no"
     return _c(f, "recall_due", body, cta, "continuity",

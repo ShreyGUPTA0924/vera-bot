@@ -122,7 +122,9 @@ def default_next_action(store: Store, merchant_id: str | None) -> tuple[dict, di
 
 def handle_reply(store: Store, conv: Conversation, message: str, from_role: str) -> dict:
     kind = classify(message)
-    lang = detect_lang(message) if detect_lang(message) == "hinglish" else conv.language if conv.language == "hinglish" else "en"
+    # mirror the language of this turn; fall back to the conversation language for tiny messages
+    words = len(norm_text(message).split())
+    lang = detect_lang(message) if words >= 3 else conv.language if conv.language == "hinglish" and detect_lang(message) == "hinglish" else detect_lang(message)
     conv.add_turn(from_role, message)
     st = store.mstate(conv.merchant_id)
     customer_side = conv.audience == "customer" or from_role == "customer"
@@ -260,7 +262,12 @@ def rule_answer(conv: Conversation, lang: str) -> dict:
     """Fallback answer when the LLM is unavailable: honest, grounded, one next step."""
     na = conv.next_action or {}
     label = na.get("label", "next step")
-    options = [
+    known = conv.facts.get("perf_line", "")
+    options = []
+    if known:
+        options.append(_L(lang, f"I don't have a breakdown for that exact item, so I won't guess. What I can see: {known}. Want the {label}? Reply YES and I'll have it ready.",
+                          f"Us item ka exact breakdown mere paas nahi hai, toh guess nahi karungi. Jo dikh raha hai: {known}. {label} chahiye? YES bolein, ready kar deti hoon."))
+    options += [
         _L(lang, f"Good question. Short version: I handle the {label} end to end — it needs about 5 minutes of your time to approve. Reply YES and I'll start.",
            f"Accha sawaal. Short mein: {label} main poora handle karungi — aapke bas 5 minute approve karne mein lagenge. YES bolein toh shuru karti hoon."),
         _L(lang, f"I don't have more detail on that in front of me right now, so I won't guess. What I can do today is the {label} — reply YES and it's done.",

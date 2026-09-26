@@ -243,7 +243,8 @@ async def tick(body: TickBody):
                             customer_id=(p.customer or {}).get("customer_id"), trigger_id=p.trigger_id,
                             kind=d.kind, audience=d.audience, send_as=d.send_as, language=d.language,
                             next_action=d.next_action, created_at=iso(now),
-                            facts={"owner": p.facts.salutation, "biz": p.facts.biz, "summary": _facts_summary(p.facts)})
+                            facts={"owner": p.facts.salutation, "biz": p.facts.biz, "summary": _facts_summary(p.facts),
+                                   "perf_line": _perf_line_text(p.facts)})
         conv.sent_hashes.add(short_hash(text, 16))
         conv.add_turn("bot", text)
         STORE.conversations[cid] = conv
@@ -263,6 +264,11 @@ async def tick(body: TickBody):
             "rationale": d.rationale + (f" Pivot: {d.pivot}." if d.pivot else "") + f" [{source}]",
         })
     return {"actions": actions}
+
+
+def _perf_line_text(f: Facts) -> str:
+    from .playbook import _perf_line
+    return _perf_line(f)
 
 
 def _facts_summary(f: Facts) -> str:
