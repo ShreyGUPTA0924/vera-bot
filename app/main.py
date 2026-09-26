@@ -279,7 +279,10 @@ def _facts_summary(f: Facts) -> str:
     p = f.perf
     parts = [f"Business: {f.biz} ({f.slug}) in {f.locality}, {f.city}. Owner: {f.salutation}."]
     if p:
-        parts.append(f"Last {p.get('window_days', 30)} days: views {p.get('views')}, calls {p.get('calls')}, ctr {p.get('ctr')}.")
+        wd = p.get('window_days', 30)
+        ctr = f"{p['ctr'] * 100:.1f}%" if isinstance(p.get('ctr'), (int, float)) else "n/a"
+        parts.append(f"Whole Google listing, last {wd} days (NOT per post or per offer): profile views {p.get('views')}, "
+                     f"calls {p.get('calls')}, click-through rate {ctr}. There is no per-post or per-offer data.")
     if f.active_offers():
         parts.append("Active offers: " + "; ".join(f.active_offers()) + ".")
     sub = f.merchant.get("subscription") or {}
