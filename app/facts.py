@@ -316,8 +316,8 @@ def clean_query(q: str) -> str:
 COMEBACK_PREFS = {
     "dentists": ("cleaning", "check", "consultation"),
     "salons": ("haircut", "spa", "threading"),
-    "gyms": ("trial", "demo", "body composition"),
-    "pharmacies": ("bp", "delivery", "consultation"),
+    "gyms": ("trial", "demo", "month", "body composition"),
+    "pharmacies": ("delivery", "health card", "bp", "consultation"),
     "restaurants": ("thali", "brunch", "delivery"),
 }
 FESTIVE_PREFS = {

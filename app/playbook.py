@@ -164,8 +164,8 @@ def pivot(f: Facts, kind: str, why: str) -> Draft:
                   pivot="subscription_expired")
     gap = f.ctr_gap()
     if f.ident.get("verified") is False:
-        body = (f"{f.salutation}, the numbers don't show a clear {kind.replace('perf_', '').replace('_', ' ')} this week "
-                f"({_perf_line(f) or 'steady traffic'}), but one thing is holding {f.biz} back: "
+        body = (f"{f.salutation}, I checked the {kind.replace('perf_', '').replace('_', ' ')} alert: your numbers are steady "
+                f"({_perf_line(f) or 'steady traffic'}), so there's nothing to promote there. The bigger win for {f.biz} right now: "
                 f"the Google profile is still unverified. Verification is a phone call or postcard — I'll walk you "
                 f"through it in about 5 minutes. " + _hl(f, "Start now? Reply YES.", "Abhi shuru karein? Reply YES."))
         return _m(f, kind, body, "binary_yes_no", "effort_externalisation",
@@ -658,7 +658,7 @@ def active_planning_intent(f: Facts, seen=None) -> Draft:
     ctx_line = ""
     for h in f.merchant.get("conversation_history") or []:
         if h.get("from") == "vera":
-            keep = [s for s in sentences(h.get("body", "").replace("—", ".")) if not s.endswith("?") and any(ch.isdigit() for ch in s)]
+            keep = [s for s in sentences(h.get("body", "").replace("—", ".")) if not s.endswith("?") and "₹" in s]
             if keep:
                 ctx_line = " ".join(keep[:2])
                 break
@@ -861,7 +861,7 @@ def customer_lapsed(f: Facts, seen=None) -> Draft:
         body += f" Since your focus was {focus}, "
         body += f"'{offer}' is an easy way back." if offer else "we can pick up right where you left off."
     elif offer:
-        body += f" '{offer}' is on for you whenever you drop by." if f.slug in ("pharmacies", "restaurants") else f" '{offer}' is an easy way back."
+        body += f" '{offer}' is on for your next order." if f.slug in ("pharmacies", "restaurants") else f" '{offer}' is an easy way back."
     pref = str(((f.customer or {}).get("preferences") or {}).get("preferred_slots", ""))
     if pref and f.slug not in ("pharmacies",):
         body += f" {humanize_slug(pref).capitalize()} slots are open."
