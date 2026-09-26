@@ -301,6 +301,14 @@ def rule_answer(conv: Conversation, lang: str, kind: str = "question") -> dict:
     label = na.get("label", "next step")
     known = conv.facts.get("perf_line", "")
     options = []
+    q = (conv.turns[-1]["text"] if conv.turns else "").lower()
+    art = na.get("artifact")
+    if art and re.search(r"what (exactly )?(will|would|do) you|show me|kya karogi|kya karoge|kya bhejogi|what will (it|you) (look|post|say)|draft|preview|kaisa dikhega", q):
+        options.append(_L(lang, f"Here's exactly what I'll put up, the {label}:\n\n{art}\n\nReply YES and it goes live; you can edit anything first.",
+                          f"Ye exact {label} hai jo main daalungi:\n\n{art}\n\nYES bolein toh live kar deti hoon; pehle kuch bhi edit kar sakte hain."))
+    if re.search(r"cost|price|charge|kitna|paisa|fees|free hai", q):
+        options.append(_L(lang, f"I can't quote a price from here, so I won't guess. What I can tell you: I prepare the {label} for you and you only approve it. Reply YES to see the draft.",
+                          f"Price main yahan se quote nahi kar sakti, guess nahi karungi. Itna pakka hai: {label} main taiyaar karti hoon, aapko bas approve karna hai. Draft dekhne ke liye YES bolein."))
     if kind == "open":
         options.append(_L(lang, f"Got it, noted. I'll shape the {label} around that. Reply YES and I'll send you the draft.",
                           f"Samajh gayi, note kar liya. {label} usi hisaab se banaungi. YES bolein toh draft bhej deti hoon."))
