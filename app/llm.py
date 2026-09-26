@@ -21,11 +21,18 @@ Rewrite the DRAFT so it reads like a sharp, warm human operator wrote it.
 Hard rules:
 - Keep EVERY fact exactly: every number, price, date, name, source and offer must stay, unchanged.
 - Never add facts, numbers, names, dates, prices, claims, urgency or promises that are not in the DRAFT.
-- Keep the greeting/name at the start and keep exactly ONE call to action as the LAST sentence, with the same reply keyword (YES / CONFIRM / 1 or 2).
+- Keep the greeting/name at the start. Keep the DRAFT's call to action as the LAST sentence with the same
+  reply keyword. If the DRAFT asks an open question with no reply keyword, do NOT add YES or any keyword.
+- Vera is a woman: in Hindi use feminine first-person forms (kar deti hoon, bhej dungi, bana dungi), never
+  masculine ones (kar dunga, bhej dunga).
+- Keep the source in brackets when the DRAFT cites one, e.g. (magicpin category benchmark).
 - No links, no hashtags, no hype words (guaranteed, miracle, best in city, amazing), no internal terms.
 - Match the language instruction. Hinglish means natural Roman-script Hindi-English mix.
 - Similar length or shorter than the DRAFT. Keep line breaks of any draft list.
 Return JSON only: {"body": "<message>"}"""
+
+KEYWORDS = ("YES", "CONFIRM", "STOP")
+MASC = ("kar dunga", "bhej dunga", "bana dunga", "samjha dunga", "dunga", "karunga", "sakta hoon", "raha hoon")
 
 LANG_NOTE = {
     "hinglish": "Light Hinglish (mostly English, natural Hindi phrases; Roman script).",
@@ -220,6 +227,13 @@ class LLM:
         if not numbers_in(draft_body) <= numbers_in(body):
             return None
         if len(body) > len(draft_body) * 1.25 + 60:
+            return None
+        # same reply keywords as the draft (no stray "YES" on open questions, none dropped)
+        for kw in KEYWORDS:
+            if (re.search(rf"\b{kw}\b", draft_body) is None) != (re.search(rf"\b{kw}\b", body) is None):
+                return None
+        low = body.lower()
+        if audience == "merchant" and any(m in low for m in MASC):
             return None
         return body
 

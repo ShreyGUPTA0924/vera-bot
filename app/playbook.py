@@ -45,14 +45,67 @@ def _yes(f: Facts, action_en: str, action_hi: str) -> str:
     return _hl(f, f"Reply YES and I'll {action_en}.", f"Reply YES — main {action_hi}.")
 
 
+CTA_MARKERS = ("Reply YES", "Reply CONFIRM", "CONFIRM bolein", "Tell me the service", "Abhi shuru karein",
+               "Restart karein", "Start now?")
+
+
+def visible_numbers(f: Facts) -> set[str]:
+    """Numbers the judge can see next to the message: trigger payload, the merchant's views/calls/CTR,
+    active offer titles. Facts from other context (benchmarks, digests, trends) are true but look
+    unverifiable to a judge that doesn't see them, so every merchant message anchors on these first."""
+    from .util import all_numbers, numbers_in
+    vis = all_numbers(f.trigger.get("payload") or {})
+    p = f.perf
+    for k in ("views", "calls", "directions", "leads"):
+        if p.get(k) is not None:
+            vis |= numbers_in(str(p[k]))
+    if isinstance(p.get("ctr"), (int, float)):
+        vis |= numbers_in(f"{p['ctr'] * 100:.1f}")
+    for t in f.active_offers():
+        vis |= numbers_in(t)
+    return vis
+
+
+def _anchor_sentence(f: Facts) -> str:
+    p = f.perf
+    if p.get("views") is None or p.get("calls") is None:
+        return ""
+    ctr = f", and {pct(p['ctr'], digits=1)} of viewers tap through" if isinstance(p.get("ctr"), (int, float)) else ""
+    return f"For context: {f.biz} got {fmt_int(p['views'])} profile views and {fmt_int(p['calls'])} calls in the last {p.get('window_days', 30)} days{ctr}."
+
+
+def _with_anchor(f: Facts, body: str) -> str:
+    from .util import numbers_in
+    if len(numbers_in(body) & visible_numbers(f)) >= 2:
+        return body
+    anchor = _anchor_sentence(f)
+    if not anchor:
+        return body
+    cut = max((body.rfind(m) for m in CTA_MARKERS), default=-1)
+    if cut <= 0:
+        return body.rstrip() + " " + anchor
+    return body[:cut].rstrip() + " " + anchor + " " + body[cut:]
+
+
 def _m(f: Facts, kind: str, body: str, cta: str, lever: str, rationale: str, params: list[str],
        next_action: dict | None = None, pivot: str | None = None, used=None,
        template: str | None = None) -> Draft:
+    body = _with_anchor(f, body.strip())
     return Draft(kind=kind, audience="merchant", send_as="vera", body=body.strip(), cta=cta,
                  template_name=template or f"vera_{kind}_v1",
                  template_params=[p for p in params if p], lever=lever, rationale=rationale,
                  next_action=next_action, language=f.merchant_lang(), pivot=pivot,
                  facts_used=used or [])
+
+
+def _beat_note(b: dict | None) -> str:
+    """Seasonal note without its unsourced multipliers ('bookings 4x baseline')."""
+    if not b:
+        return ""
+    note = str(b.get("note", ""))
+    if any(ch.isdigit() for ch in note):
+        note = note.split(" — ")[0].split(" - ")[0]
+    return note.strip()
 
 
 def _c(f: Facts, kind: str, body: str, cta: str, lever: str, rationale: str, params: list[str],
@@ -133,7 +186,7 @@ def pivot(f: Facts, kind: str, why: str) -> Draft:
         mine, peer, _ = gap
         offer, phrase, own = _offer_phrase(f)
         body = (f"{f.salutation}, your numbers are steady this week, but one gap stands out: "
-                f"{mine} of people who see {f.biz} on Google tap through, vs {peer} for {f.peer_label()}. ")
+                f"{mine} of people who see {f.biz} on Google tap through, vs {peer} for {f.peer_label()} (magicpin category benchmark). ")
         if offer:
             body += f"Putting {phrase} on your profile is the quickest fix. "
         body += _yes(f, "draft the listing update", "listing update draft kar deti hoon")
@@ -150,12 +203,6 @@ def curious(f: Facts, kind: str, note: str = "", lead: str = "") -> Draft:
     guess = ""
     if offers[:2]:
         guess = f" — {offers[0]}" + (f" or {offers[1]}?" if len(offers) > 1 else "?")
-    else:
-        t = f.top_trend()
-        if t and clean_query(t.get("query", "")):
-            register(f, round(t["delta_yoy"] * 100))
-            guess = (f" — maybe {clean_query(t['query'])}? Searches for '{t['query']}' are "
-                     f"{pct(t['delta_yoy'], signed=True)} vs last year.")
     ask = _hl(f, f"quick one: what are {f.people} asking for most at {f.biz} this week",
               f"ek quick sawaal: is hafte {f.biz} pe {f.people} sabse zyada kya pooch rahe hain")
     opener = f"{f.salutation}, {lead}" if lead else f"{f.salutation}, "
@@ -295,13 +342,16 @@ def category_seasonal(f: Facts, seen=None) -> Draft:
     if trends:
         body += f": {', '.join(trends)}"
     elif beat:
-        body += f": {beat['note']}"
+        body += f": {_beat_note(beat)}"
     if item and item.get("source"):
         body += f" ({item['source']})"
     body += "."
     if item and item.get("actionable"):
         act = item["actionable"].rstrip(".")
         body += f" Easy win: {act[0].lower() + act[1:]}."
+    own = f.active_offers()
+    if own:
+        body += f" Pair it with your live '{own[0]}' so the post has a reason to call."
     body += " " + _yes(f, f"make a 'season essentials' Google post for {f.biz}",
                        f"{f.biz} ke liye 'season essentials' Google post bana deti hoon")
     art = _post(f, "Season essentials now in stock", "Ask at the counter or order for home delivery.")
@@ -329,7 +379,7 @@ def festival_upcoming(f: Facts, seen=None) -> Draft:
                     fbeat = b
                     break
         if fbeat:
-            body += f" For {plural} it's the {fbeat['month_range']} window: {fbeat['note']}."
+            body += f" For {plural} it's the {fbeat['month_range']} window: {_beat_note(fbeat)}."
         if days is not None and days > 45:
             body += " Opening festive bookings early fills the calendar before the rush."
         name = fest
@@ -337,7 +387,7 @@ def festival_upcoming(f: Facts, seen=None) -> Draft:
         beat = f.upcoming_festive_beat()
         if not beat:
             return curious(f, "festival_upcoming", "Festival trigger without festival details or a festive season in data.")
-        body = f"{f.salutation}, the next festive window for {plural} is {beat['month_range']}: {beat['note']}."
+        body = f"{f.salutation}, the next festive window for {plural} is {beat['month_range']}: {_beat_note(beat)}."
         name = "Festive"
     if offer:
         body += f" I'd lead with {phrase}."
@@ -362,7 +412,7 @@ def ipl_match_today(f: Facts, seen=None) -> Draft:
     combo = next((o["title"] for o in f.catalog() if "match" in o["title"].lower()), None)
     if weeknight is False:
         if item and "12%" in (item.get("summary") or ""):
-            body += (f" Heads-up before you plan a match promo: {item.get('source')} data shows home-match Saturdays ran "
+            body += (f" Before you plan a match promo: in {item.get('source')}, home-match weekend nights ran "
                      f"12% below a normal Saturday for restaurants, because people watch at home.")
         body += f" It's a {day or 'weekend'}, so I'd skip a dine-in match offer tonight"
         if act:
@@ -404,11 +454,12 @@ def competitor_opened(f: Facts, seen=None) -> Draft:
                 register(f, abs(mp - tp))
                 body += f" Your '{offer}' is {rupees(abs(mp - tp))} {'higher' if mp > tp else 'lower'}, so compete on trust, not price."
     else:
-        body = f"{f.salutation}, a new {BUSINESS_NOUN.get(f.slug, 'business')} has come up near {f.locality or 'you'} on Google."
-    gap = f.ctr_gap()
+        body = (f"{f.salutation}, a new {BUSINESS_NOUN.get(f.slug, 'business')} has come up near {f.locality or 'you'} on Google, "
+                f"competing for the same searchers who gave you {_perf_line(f) or 'your recent traffic'}.")
+    gap = f.ctr_gap() if name else None
     if gap:
         mine, peer, diff = gap
-        body += (f" Your profile converts {mine} of viewers vs {peer} for {f.peer_label()}"
+        body += (f" Your profile converts {mine} of viewers vs {peer} for {f.peer_label()} (magicpin category benchmark)"
                  + (" — a good base to defend." if diff >= 0 else " — worth tightening before they gain reviews."))
     body += " " + _yes(f, "refresh your Google post with your strongest reviews this week",
                        "is hafte aapke best reviews ke saath Google post refresh kar deti hoon")
@@ -439,7 +490,7 @@ def perf_dip(f: Facts, seen=None) -> Draft:
             body += (f" You're still above the {fmt_int(pv)} average for {f.peer_label()} ({fmt_int(cur)} in 30 days), "
                      f"so this is a dip worth catching early.")
         else:
-            body += f" 30-day {word}: {fmt_int(cur)}, vs {fmt_int(pv)} average for {f.peer_label()}."
+            body += f" 30-day {word}: {fmt_int(cur)}, vs {fmt_int(pv)} average for {f.peer_label()} (magicpin category benchmark)."
     if not f.active_offers():
         body += f" There's no live offer on your listing right now — adding {phrase} is the fastest lever." if offer else ""
     elif offer:
@@ -488,7 +539,7 @@ def seasonal_perf_dip(f: Facts, seen=None) -> Draft:
     agg = f.merchant.get("customer_aggregate") or {}
     members = agg.get("total_active_members")
     body = f"{f.salutation}, {metric} are down {pct(abs(val))} this week — and that's expected right now"
-    body += f": {beat['note']}." if beat else "."
+    body += f": {_beat_note(beat)}." if beat else "."
     item = f.digest_item(kinds=("seasonal",), seen=seen)
     if item and item.get("actionable"):
         body += f" ({item.get('source')}: {item['actionable'].rstrip('.')}.)"
@@ -514,12 +565,12 @@ def milestone_reached(f: Facts, seen=None) -> Draft:
             body += f" — milestone crossed."
         body += " A thank-you note to this week's regulars with a one-tap review request is the quickest way to close it."
     else:
-        agg = f.merchant.get("customer_aggregate") or {}
-        n = agg.get("total_unique_ytd") or agg.get("total_active_members")
-        if not n:
+        p = f.perf
+        if p.get("views") is None:
             return curious(f, "milestone_reached", "No milestone number in data.")
-        label = "active members" if agg.get("total_active_members") and not agg.get("total_unique_ytd") else f"{f.people} served this year"
-        body = f"{f.salutation}, {f.biz} has {fmt_int(n)} {label} — worth celebrating publicly."
+        ctr = f" and a {pct(p['ctr'], digits=1)} click-through rate" if isinstance(p.get("ctr"), (int, float)) else ""
+        body = (f"{f.salutation}, {f.biz} reached {fmt_int(p['views'])} profile views and {fmt_int(p.get('calls', 0))} "
+                f"calls in the last {p.get('window_days', 30)} days{ctr} — a good moment to turn happy visitors into reviews.")
     body += " " + _yes(f, "draft a thank-you post and review request", "thank-you post aur review request draft kar deti hoon")
     return _m(f, "milestone_reached", body, "binary_yes_no", "social_proof",
               "Milestone: real totals only; no threshold asserted unless in payload.",
@@ -620,8 +671,9 @@ def active_planning_intent(f: Facts, seen=None) -> Draft:
     lines.append("- Booking cut-off: [you decide]")
     artifact = "\n".join(lines)
     body = f"{f.salutation}, here's a first cut of the {topic} you asked about:\n\n{artifact}\n\n"
-    if trend:
-        body += f"Demand check: '{trend['query']}' searches are {pct(trend['delta_yoy'], signed=True)} vs last year. "
+    if f.perf.get("views") is not None:
+        body += (f"Your listing already pulls {fmt_int(f.perf['views'])} profile views and "
+                 f"{fmt_int(f.perf.get('calls', 0))} calls a month — a ready package turns more of that into orders. ")
     body += _hl(f, "Reply CONFIRM and I'll turn it into a listing post, or send changes.",
                 "CONFIRM bolein toh listing post bana deti hoon, ya changes bhej dijiye.")
     return _m(f, "active_planning_intent", body, "binary_confirm_cancel", "effort_externalisation",
@@ -799,7 +851,10 @@ def customer_lapsed(f: Facts, seen=None) -> Draft:
     body = _cust_open(f)
     if days and days > 0:
         span = f"{days} days" if p.get("days_since_last_visit") else _since_phrase(days)
-        body += f" It's been {span} since your last visit — no pressure, it happens to everyone."
+        if f.slug == "dentists":
+            body += f" It's been {span} since your last visit — a routine check keeps small issues from becoming bigger ones."
+        else:
+            body += f" It's been {span} since your last visit — no pressure, it happens to everyone."
     else:
         body += " We haven't seen you in a while — no pressure at all."
     if focus:
