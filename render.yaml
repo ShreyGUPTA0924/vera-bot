@@ -16,7 +16,11 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        sync: false
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_VARIANT
+        value: "1"
+      - key: LLM_ORDER
+        value: gemini,groq
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL
