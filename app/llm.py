@@ -82,28 +82,45 @@ class Provider:
 
 class Gemini(Provider):
     name = "gemini"
+    # Request shapes differ across Gemini generations; try in order, remember the first that works.
+    VARIANTS = [
+        {"thinkingConfig": {"thinkingBudget": 0}, "json": True},
+        {"thinkingConfig": {"thinkingLevel": "minimal"}, "json": True},
+        {"thinkingConfig": {"thinkingLevel": "low"}, "json": True},
+        {"thinkingConfig": None, "json": True},
+        {"thinkingConfig": None, "json": False},
+    ]
 
     def __init__(self, key: str, model: str):
         super().__init__()
         self.key, self.model = key, model
         self.sem = asyncio.Semaphore(3)
-        self.thinking_mode = os.getenv("GEMINI_THINKING", "auto")  # auto | off | none
+        self.variant = int(os.getenv("GEMINI_VARIANT", "-1"))  # -1 = auto-detect
+
+    def _body(self, system, user, v):
+        cfg = {"temperature": 0, "maxOutputTokens": 600}
+        if v["json"]:
+            cfg["responseMimeType"] = "application/json"
+        if v["thinkingConfig"]:
+            cfg["thinkingConfig"] = v["thinkingConfig"]
+        return {"systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": user}]}],
+                "generationConfig": cfg}
 
     async def complete(self, client, system, user, timeout):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
-        cfg = {"temperature": 0, "maxOutputTokens": 500, "responseMimeType": "application/json"}
-        if self.thinking_mode in ("auto", "off"):
-            cfg["thinkingConfig"] = {"thinkingBudget": 0}
-        body = {"systemInstruction": {"parts": [{"text": system}]},
-                "contents": [{"role": "user", "parts": [{"text": user}]}],
-                "generationConfig": cfg}
-        r = await client.post(url, json=body, headers={"x-goog-api-key": self.key}, timeout=timeout)
-        if r.status_code == 400 and "thinking" in r.text.lower() and self.thinking_mode == "auto":
-            self.thinking_mode = "none"  # model doesn't accept a thinking budget; remember and retry once
-            cfg.pop("thinkingConfig", None)
-            r = await client.post(url, json=body, headers={"x-goog-api-key": self.key}, timeout=timeout)
-        if r.status_code != 200:
-            raise httpx.HTTPStatusError(f"gemini {r.status_code}", request=r.request, response=r)
+        order = [self.variant] if self.variant >= 0 else list(range(len(self.VARIANTS)))
+        r = None
+        for i in order:
+            r = await client.post(url, json=self._body(system, user, self.VARIANTS[i]),
+                                  headers={"x-goog-api-key": self.key}, timeout=timeout)
+            if r.status_code == 400 and self.variant < 0:
+                continue  # this request shape isn't accepted by this model; try the next
+            if r.status_code == 200:
+                self.variant = i
+            break
+        if r is None or r.status_code != 200:
+            raise httpx.HTTPStatusError(f"gemini {getattr(r, 'status_code', 0)}", request=r.request, response=r)
         data = r.json()
         parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
         return "".join(p.get("text", "") for p in parts if not p.get("thought"))
@@ -142,11 +159,13 @@ class LLM:
         self.timeout = float(os.getenv("LLM_CALL_TIMEOUT", "6"))
         self.providers: list[tuple[Provider, Limiter]] = []
         if os.getenv("GEMINI_API_KEY"):
-            self.providers.append((Gemini(os.environ["GEMINI_API_KEY"], os.getenv("GEMINI_MODEL", "gemini-2.5-flash")),
+            self.providers.append((Gemini(os.environ["GEMINI_API_KEY"], os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")),
                                    Limiter(_env_int("GEMINI_RPM", 8), _env_int("GEMINI_TPM", 200000), _env_int("GEMINI_RPD", 400))))
         if os.getenv("GROQ_API_KEY"):
             self.providers.append((Groq(os.environ["GROQ_API_KEY"], os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")),
                                    Limiter(_env_int("GROQ_RPM", 24), _env_int("GROQ_TPM", 6400), _env_int("GROQ_RPD", 800))))
+        order = [x.strip() for x in os.getenv("LLM_ORDER", "gemini,groq").split(",") if x.strip()]
+        self.providers.sort(key=lambda pl: order.index(pl[0].name) if pl[0].name in order else 99)
         self._client: httpx.AsyncClient | None = None
         self.last_error: str | None = None
         self.model_label = "+".join(f"{p.name}:{getattr(p, 'model', '')}" for p, _ in self.providers) or "none"

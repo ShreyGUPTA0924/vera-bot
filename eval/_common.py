@@ -65,7 +65,7 @@ def judge_call(system: str, prompt: str) -> str | None:
                            headers={"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"}, json=body)
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
-        model = os.getenv("JUDGE_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+        model = os.getenv("JUDGE_MODEL", os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"))
         r = httpx.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", timeout=60,
                        headers={"x-goog-api-key": os.environ["GEMINI_API_KEY"]},
                        json={"systemInstruction": {"parts": [{"text": system}]},
