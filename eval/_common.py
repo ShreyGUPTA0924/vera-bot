@@ -56,11 +56,13 @@ def judge_call(system: str, prompt: str) -> str | None:
     prov = os.getenv("JUDGE_PROVIDER") or ("groq" if os.getenv("GROQ_API_KEY") else "gemini")
     try:
         if prov == "groq":
+            jm = os.getenv("JUDGE_MODEL", "openai/gpt-oss-120b")
+            body = {"model": jm, "temperature": 0, "max_tokens": 1200,
+                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
+            if "gpt-oss" in jm:
+                body["reasoning_effort"] = "low"
             r = httpx.post("https://api.groq.com/openai/v1/chat/completions", timeout=60,
-                           headers={"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"},
-                           json={"model": os.getenv("JUDGE_MODEL", "openai/gpt-oss-120b"), "temperature": 0,
-                                 "max_tokens": 1200, "messages": [{"role": "system", "content": system},
-                                                                  {"role": "user", "content": prompt}]})
+                           headers={"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"}, json=body)
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
         model = os.getenv("JUDGE_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))

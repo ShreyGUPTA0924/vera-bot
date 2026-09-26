@@ -133,8 +133,10 @@ def _tone(f: Facts) -> str:
     return f"{v.get('tone', '')}, {v.get('register', '')}".strip(", ")
 
 
-async def finalize(plan: Plan, deadline: float) -> tuple[str, str] | None:
-    """Returns (body, source) — cached first-served output, LLM polish if allowed, else the draft."""
+async def finalize(plan: Plan, deadline: float, serve: bool = True) -> tuple[str, str] | None:
+    """Returns (body, source) — cached first-served output, LLM polish if allowed, else the draft.
+    Background precompose (serve=False) only caches successful polishes, so a momentary lack of
+    quota never locks in the plain template; whatever is actually served first is cached for good."""
     d, f = plan.draft, plan.facts
     if validate(d.body, f, cta=d.cta, audience=d.audience):
         # draft failed our own checks: fall back to the safe ask-the-merchant draft for merchants
@@ -172,6 +174,8 @@ async def finalize(plan: Plan, deadline: float) -> tuple[str, str] | None:
             STORE.inflight.pop(key, None)
     if source == "template":
         STORE.stats["template"] += 1
+    if not serve and source != "llm":
+        return body, source
     STORE.cache_put(key, {"body": body, "source": source})
     return STORE.cache_get(key)["body"], source
 
@@ -180,7 +184,7 @@ async def _precompose(trigger_id: str, now):
     try:
         plan = plan_trigger(STORE, trigger_id, now)
         if isinstance(plan, Plan):
-            await finalize(plan, time.time() + 20)
+            await finalize(plan, time.time() + 20, serve=False)
     except Exception as e:  # background work must never crash anything
         log.info("precompose %s failed: %s", trigger_id, e)
 

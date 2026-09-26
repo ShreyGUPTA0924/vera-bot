@@ -40,6 +40,8 @@ def main():
     ap.add_argument("--now", default="2026-04-26T10:30:00Z")
     ap.add_argument("--judge", action="store_true")
     ap.add_argument("--only", default="", help="comma list of test ids, e.g. T01,T05")
+    ap.add_argument("--pace", type=float, default=float(os.getenv("PACE", "4")),
+                    help="seconds between ticks so free-tier LLM quota can polish each message")
     args = ap.parse_args()
     url = args.url.rstrip("/")
     pack = load_pack()
@@ -65,6 +67,7 @@ def main():
     out_dir.mkdir(exist_ok=True)
     rows, dims = [], {"specificity": [], "category_fit": [], "merchant_fit": [], "decision_quality": [], "engagement_compulsion": []}
     for p in pairs:
+        time.sleep(args.pace)
         t0 = time.time()
         r = c.post(f"{url}/v1/tick", json={"now": args.now, "available_triggers": [p["trigger_id"]]})
         lat = time.time() - t0
@@ -103,7 +106,7 @@ def main():
                   f"decision {s.decision_quality} | engage {s.engagement_compulsion}  => {s.total}/50")
             if s.hint:
                 print("   hint:", s.hint)
-            time.sleep(float(os.getenv("JUDGE_SLEEP", "7")))
+            time.sleep(float(os.getenv("JUDGE_SLEEP", "10")))
     with open(out_dir / "submission.jsonl", "w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
