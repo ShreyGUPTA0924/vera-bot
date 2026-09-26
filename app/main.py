@@ -270,6 +270,22 @@ async def tick(body: TickBody):
     return {"actions": actions}
 
 
+def _relabels_listing_numbers(text: str, merchant: dict) -> bool:
+    """True if a sentence ties a whole-listing number (views/calls/leads) to a single post, offer or campaign."""
+    import re
+    from .util import numbers_in, sentences
+    perf = (merchant or {}).get("performance") or {}
+    listing = set()
+    for k in ("views", "calls", "leads", "directions"):
+        if perf.get(k) is not None:
+            listing |= numbers_in(str(perf[k]))
+    for sent in sentences(text.replace("\n", " ")):
+        if numbers_in(sent) & listing and re.search(r"\b(post|posts|offer|campaign|ad|ads|reel|story|banner|promo)\b", sent, re.I) \
+                and not re.search(r"\b(listing|profile)\b", sent, re.I):
+            return True
+    return False
+
+
 def _perf_line_text(f: Facts) -> str:
     from .playbook import _perf_line
     return _perf_line(f)
@@ -329,6 +345,8 @@ async def reply(body: ReplyBody):
                 if validate(text, f, audience=conv.audience, prior_bodies={t["text"] for t in conv.turns if t["role"] == "bot"},
                             context_blob=ctx_blob):
                     text = None
+                elif _relabels_listing_numbers(text, merchant):
+                    text = None  # e.g. "the post was seen by 880 people" when 880 is whole-listing views
         if text:
             conv.sent_hashes.add(short_hash(text, 16))
             conv.add_turn("bot", text)
