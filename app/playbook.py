@@ -42,7 +42,8 @@ def _hl(f: Facts, en: str, hi: str) -> str:
 
 
 def _yes(f: Facts, action_en: str, action_hi: str) -> str:
-    return _hl(f, f"Reply YES and I'll {action_en}.", f"Reply YES — main {action_hi}.")
+    return _hl(f, f"Reply YES and I'll {action_en}; your part takes under 2 minutes.",
+               f"Reply YES — main {action_hi}, aapka bas 2 minute lagega.")
 
 
 CTA_MARKERS = ("Reply YES", "Reply CONFIRM", "CONFIRM bolein", "Tell me the service", "Abhi shuru karein",
@@ -66,19 +67,30 @@ def visible_numbers(f: Facts) -> set[str]:
     return vis
 
 
-def _anchor_sentence(f: Facts) -> str:
+OUTCOME = {"dentists": "appointments", "salons": "bookings", "restaurants": "orders",
+           "gyms": "sign-ups", "pharmacies": "orders"}
+
+
+def _anchor_sentence(f: Facts, lever: str = "") -> str:
+    """The merchant's own visible numbers, phrased as the reason for the action (not a stat dump)."""
     p = f.perf
     if p.get("views") is None or p.get("calls") is None:
         return ""
-    ctr = f", and {pct(p['ctr'], digits=1)} of viewers tap through" if isinstance(p.get("ctr"), (int, float)) else ""
-    return f"For context: {f.biz} got {fmt_int(p['views'])} profile views and {fmt_int(p['calls'])} calls in the last {p.get('window_days', 30)} days{ctr}."
+    v, c = fmt_int(p["views"]), fmt_int(p["calls"])
+    out = OUTCOME.get(f.slug, "customers")
+    if lever == "ask_the_merchant":
+        return (f"Since {f.biz} already pulls {v} profile views and {c} calls a month, putting the most-asked "
+                f"service up front turns more of them into {out}.")
+    if lever == "loss_aversion":
+        return f"That's traffic worth protecting: {v} profile views and {c} calls in the last {p.get('window_days', 30)} days."
+    return f"You're already pulling {v} profile views and {c} calls a month, so this turns more of that into {out}."
 
 
-def _with_anchor(f: Facts, body: str) -> str:
+def _with_anchor(f: Facts, body: str, lever: str = "") -> str:
     from .util import numbers_in
     if len(numbers_in(body) & visible_numbers(f)) >= 2:
         return body
-    anchor = _anchor_sentence(f)
+    anchor = _anchor_sentence(f, lever)
     if not anchor:
         return body
     cut = max((body.rfind(m) for m in CTA_MARKERS), default=-1)
@@ -90,7 +102,7 @@ def _with_anchor(f: Facts, body: str) -> str:
 def _m(f: Facts, kind: str, body: str, cta: str, lever: str, rationale: str, params: list[str],
        next_action: dict | None = None, pivot: str | None = None, used=None,
        template: str | None = None) -> Draft:
-    body = _with_anchor(f, body.strip())
+    body = _with_anchor(f, body.strip(), lever)
     return Draft(kind=kind, audience="merchant", send_as="vera", body=body.strip(), cta=cta,
                  template_name=template or f"vera_{kind}_v1",
                  template_params=[p for p in params if p], lever=lever, rationale=rationale,
@@ -762,7 +774,11 @@ def recall_due(f: Facts, seen=None) -> Draft:
     else:
         if offer and own:
             body += f" {offer} is available."
-        body += " " + _cust_close(f, "Reply YES and we'll call you to fix a time.", "YES reply karein, hum time fix karne ke liye call kar lenge.")
+        pref = humanize_slug(str(((f.customer or {}).get("preferences") or {}).get("preferred_slots", "")))
+        if pref:
+            body += " " + _cust_close(f, f"Reply YES and we'll hold a {pref} slot for you.", f"YES reply karein, hum aapke liye {pref} slot hold kar lenge.")
+        else:
+            body += " " + _cust_close(f, "Reply YES and we'll call you to fix a time.", "YES reply karein, hum time fix karne ke liye call kar lenge.")
         cta = "binary_yes_no"
     return _c(f, "recall_due", body, cta, "continuity",
               f"Customer recall; consent-checked; last visit {last}; real slots/offer only; customer language '{f.customer_lang()}'.",
