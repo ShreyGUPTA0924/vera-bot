@@ -42,8 +42,7 @@ def _hl(f: Facts, en: str, hi: str) -> str:
 
 
 def _yes(f: Facts, action_en: str, action_hi: str) -> str:
-    return _hl(f, f"Reply YES and I'll {action_en}; your part takes under 2 minutes.",
-               f"Reply YES — main {action_hi}, aapka bas 2 minute lagega.")
+    return _hl(f, f"Reply YES and I'll {action_en}.", f"Reply YES — main {action_hi}.")
 
 
 CTA_MARKERS = ("Reply YES", "Reply CONFIRM", "CONFIRM bolein", "Tell me the service", "Abhi shuru karein",
@@ -143,7 +142,7 @@ def _offer_phrase(f: Facts, prefer=()) -> tuple[str | None, str, bool]:
         return None, "", False
     if own:
         return title, f"your live offer '{title}'", True
-    return title, f"a '{title}' offer (a format that works well in your category)", False
+    return title, f"a '{title}' offer (a common format for {PLURAL_BIZ.get(f.slug, 'businesses like yours')})", False
 
 
 def _perf_line(f: Facts) -> str:
