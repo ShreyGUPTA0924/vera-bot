@@ -313,7 +313,10 @@ async def reply(body: ReplyBody):
         llm = get_llm()
         text = None
         if llm.active:
-            facts_text = conv.facts.get("summary", "") + (f" Pending action: {(conv.next_action or {}).get('label')}." if conv.next_action else "")
+            last_bot = next((t["text"] for t in reversed(conv.turns[:-1]) if t["role"] == "bot"), "")
+            facts_text = (conv.facts.get("summary", "")
+                          + (f" Pending action Vera offered: {(conv.next_action or {}).get('label')}." if conv.next_action else "")
+                          + (f" Vera's last message: {last_bot[:400]}" if last_bot else ""))
             text = await llm.answer(body.message, facts_text, lang, deadline)
             if text:
                 ctx_blob = json.dumps([STORE.get("merchant", conv.merchant_id) or {}], ensure_ascii=False)
@@ -328,5 +331,5 @@ async def reply(body: ReplyBody):
             conv.add_turn("bot", text)
             return {"action": "send", "body": text, "cta": "open_ended",
                     "rationale": "Answered the merchant's question from known facts only; one next step."}
-        return rule_answer(conv, lang)
+        return rule_answer(conv, lang, res.get("kind", "question"))
     return res

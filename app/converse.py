@@ -24,7 +24,8 @@ AUTO_STRONG = [
 OPT_OUT = ["stop", "unsubscribe", "don't message", "dont message", "do not message", "stop messaging",
            "stop sending", "band karo", "mat bhejo", "message mat", "nahi chahiye", "not interested",
            "remove me", "leave me alone", "no more messages", "block"]
-HOSTILE = ["useless", "spam", "idiot", "stupid", "bakwas", "bakwaas", "pagal", "fraud", "scam", "shut up",
+HOSTILE = ["useless", "spam", "idiot", "idiots", "stupid", "bakwas", "bakwaas", "pagal", "fraud", "frauds", "scam",
+           "scams", "shut up", "cheaters", "wasting my time",
            "bothering", "irritating", "nonsense", "waste of time", "rubbish", "get lost", "chutiya", "bewakoof",
            "harass", "pathetic"]
 COMMIT = ["yes", "yeah", "yep", "yup", "haan", "han ji", "haanji", "ha ji", "ji haan", "ok", "okay", "okk",
@@ -32,9 +33,11 @@ COMMIT = ["yes", "yeah", "yep", "yup", "haan", "han ji", "haanji", "ha ji", "ji 
           "chalo", "start", "proceed", "confirm", "please do", "send it", "send me", "what's next",
           "whats next", "what next", "judna hai", "join", "sign me up", "bilkul", "theek hai", "thik hai",
           "sahi hai", "done", "👍", "✅", "go for it", "sounds good", "alright", "interested"]
-NEXT_WORDS = ["what's next", "whats next", "what next", "next step", "aage kya"]
-LATER = ["later", "baad mein", "baad me", "busy", "not now", "abhi nahi", "tomorrow", "kal ", "next week",
-         "call later", "free nahi", "in a meeting", "remind me"]
+NEXT_WORDS = ["what's next", "whats next", "what next", "next step", "aage kya", "what do i need to do",
+              "what should i do", "what do i do", "kya karna hai", "kya karna padega", "how do we start", "how do i start"]
+WHO = ["who is this", "who are you", "kaun ho", "kaun hai", "aap kaun", "which company", "kahan se"]
+LATER = ["later", "baad mein", "baad me", "busy", "not now", "not right now", "abhi nahi", "tomorrow", "kal",
+         "next week", "call later", "free nahi", "in a meeting", "remind me", "some other time", "baad me baat"]
 HARD_NO = {"no", "nahi", "nope", "na", "no thanks", "nahin", "no thank you", "not now thanks"}
 OFF_TOPIC = ["gst", "itr", "income tax", "tax filing", "loan", "insurance", "visa", "passport", "crypto",
              "mutual fund", "stock market", "recharge", "electricity bill", "accountant", "lawyer", "court",
@@ -74,7 +77,9 @@ def classify(msg: str) -> str:
         return "decline"
     if _has(low, OFF_TOPIC) and not _has(low, NEXT_WORDS):
         return "off_topic"
-    if _has(low, LATER):
+    if _has(low, WHO):
+        return "who"
+    if _has(low, LATER) and not (_has(low, NEXT_WORDS)):
         return "later"
     commit = _has(low, COMMIT)
     if raw.strip() in ("1", "2", "3"):
@@ -100,6 +105,20 @@ def _unique(conv: Conversation, options: list[str]) -> str | None:
         if short_hash(o, 16) not in conv.sent_hashes:
             return o
     return None
+
+
+FILLER = r"^(mostly|mainly|probably|i think|i guess|abhi|zyada ?tar|sabse zyada|customers? (are )?asking( for| about)?|log|" \
+         r"people (are )?asking( for| about)?|it'?s|its|well|hmm|ok|okay)\b[\s,:-]*"
+
+
+def _clean_service(msg: str) -> str:
+    """'Mostly keratin and hair spa this week' -> 'Keratin and hair spa'."""
+    t = re.sub(r"\s+", " ", (msg or "").strip().rstrip(".!"))
+    for _ in range(3):
+        t = re.sub(FILLER, "", t, flags=re.I).strip()
+    t = re.sub(r"\b(this week|is hafte|in hafte|these days|aajkal|lately)\b", "", t, flags=re.I)
+    t = re.sub(r"\s+", " ", t).strip(" ,.-")[:60] or (msg or "").strip()[:60]
+    return t[:1].upper() + t[1:]
 
 
 def default_next_action(store: Store, merchant_id: str | None) -> tuple[dict, dict]:
@@ -252,18 +271,39 @@ def handle_reply(store: Store, conv: Conversation, message: str, from_role: str)
         body = _L(lang, f"Anytime! Whenever you're ready, reply YES and I'll get the {label} done.",
                   f"Koi baat nahi! Jab ready hon, YES bhej dijiye — {label} main kar dungi.")
         return send(body, "binary_yes_no", "Polite acknowledgement; single low-friction next step.") if short_hash(body, 16) not in conv.sent_hashes else end("Nothing new to add.")
-    # question / open: answered by the caller (LLM with facts) or this safe rule
+    if kind == "who":
+        biz = conv.facts.get("biz") or "your business"
+        body = _L(lang,
+                  f"I'm Vera, magicpin's assistant for {biz}: I look after your Google listing, offers and customer messages so you don't have to. Right now I can get the {label} ready. Reply YES and I'll start.",
+                  f"Main Vera hoon, magicpin ki assistant: {biz} ki Google listing, offers aur customer messages main sambhalti hoon. Abhi {label} ready kar sakti hoon. YES bolein toh shuru karti hoon.")
+        return send(body, "binary_yes_no", "Merchant asked who we are: short identity + the pending action.")
+    # The merchant answered our own question (curious-ask / dormant): act on the answer right away.
+    art = na.get("artifact") or ""
+    if kind in ("open", "question") and "[service]" in art and "?" not in message and len(message) <= 120:
+        svc = _clean_service(message)
+        filled = art.replace("[service]", svc)
+        conv.next_action = dict(na, artifact=filled, label=f"Google post on {svc}")
+        body = _L(lang,
+                  f"Perfect, that's useful. Done ✅ Here's the Google post for it:\n\n{filled}\n\nReply CONFIRM to make it live, or send any change.",
+                  f"Perfect, ye kaam ki baat hai. Done ✅ Iska Google post ready hai:\n\n{filled}\n\nLive karne ke liye CONFIRM reply karein, ya changes bhej dijiye.")
+        return send(body, "binary_confirm_cancel",
+                    "Merchant answered our demand question; turned the answer into the promised artifact immediately.",
+                    state="ACTION")
+    # question / open: answered by the caller (LLM with facts) or the safe rule
     if conv.state == "OPEN":
         conv.state = "ENGAGED"
     return {"action": "_needs_answer", "kind": kind, "lang": lang}
 
 
-def rule_answer(conv: Conversation, lang: str) -> dict:
+def rule_answer(conv: Conversation, lang: str, kind: str = "question") -> dict:
     """Fallback answer when the LLM is unavailable: honest, grounded, one next step."""
     na = conv.next_action or {}
     label = na.get("label", "next step")
     known = conv.facts.get("perf_line", "")
     options = []
+    if kind == "open":
+        options.append(_L(lang, f"Got it, noted. I'll shape the {label} around that. Reply YES and I'll send you the draft.",
+                          f"Samajh gayi, note kar liya. {label} usi hisaab se banaungi. YES bolein toh draft bhej deti hoon."))
     if known:
         options.append(_L(lang, f"I don't have a breakdown for that exact item, so I won't guess. What I can see: {known}. Want the {label}? Reply YES and I'll have it ready.",
                           f"Us item ka exact breakdown mere paas nahi hai, toh guess nahi karungi. Jo dikh raha hai: {known}. {label} chahiye? YES bolein, ready kar deti hoon."))

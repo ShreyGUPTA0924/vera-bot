@@ -238,10 +238,12 @@ class LLM:
         return body
 
     async def answer(self, question: str, facts_text: str, lang: str, deadline: float) -> str | None:
-        system = ("You are Vera, magicpin's WhatsApp assistant for Indian local businesses. Answer the merchant's "
-                  "question in 1-3 short sentences using ONLY the FACTS. If the facts don't contain the answer, say "
-                  "honestly you don't have that detail — never guess numbers. End with one low-effort next step. "
-                  "No links. Return JSON only: {\"body\": \"...\"}")
+        system = ("You are Vera, magicpin's WhatsApp assistant for Indian local businesses (a woman; in Hindi use "
+                  "feminine forms like 'kar deti hoon'). Reply to the merchant's latest message in 1-3 short sentences. "
+                  "It may be a question or a statement. Use ONLY the FACTS; if they don't contain what was asked, say "
+                  "honestly you don't have that detail and never guess numbers, prices or dates. Don't repeat Vera's "
+                  "last message. Don't ask a qualifying question; end with one low-effort next step tied to the pending "
+                  "action (reply YES). No links. Return JSON only: {\"body\": \"...\"}")
         user = json.dumps({"QUESTION": question, "FACTS": facts_text, "language": LANG_NOTE.get(lang, LANG_NOTE["en"])},
                           ensure_ascii=False)
         out = await self.json_call(system, user, deadline)
